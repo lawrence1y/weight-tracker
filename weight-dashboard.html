@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="体重记录">
+<link rel="apple-touch-icon" href="icon.png">
+<title>体重看板</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f0f4f8;--card:#fff;--primary:#5b8dee;--primary-light:#eef2fd;
+  --success:#38b887;--warning:#f5a623;--danger:#e05b5b;
+  --text:#2d3748;--muted:#8896aa;--border:#e4eaf2;
+  --shadow:0 2px 12px rgba(0,0,0,.08);--radius:16px;
+}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;
+  background:var(--bg);color:var(--text);min-height:100vh;
+  padding:0 0 80px;max-width:480px;margin:0 auto;
+}
+
+/* Header */
+.header{
+  background:linear-gradient(135deg,#4f7fe8 0%,#7c5ce4 100%);
+  color:#fff;padding:44px 20px 28px;
+  border-radius:0 0 28px 28px;margin-bottom:-16px;position:relative;
+}
+.header-date{font-size:13px;opacity:.8;margin-bottom:4px}
+.header-greeting{font-size:22px;font-weight:700;margin-bottom:12px}
+.header-streak{
+  display:inline-flex;align-items:center;gap:6px;
+  background:rgba(255,255,255,.2);border-radius:20px;padding:5px 12px;font-size:13px;
+}
+.streak-fire{font-size:15px}
+
+/* Auth bar */
+.auth-bar{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:14px;min-height:28px;
+}
+.auth-user{display:flex;align-items:center;gap:7px;font-size:12px;opacity:.9}
+.auth-avatar{width:22px;height:22px;border-radius:50%;border:1.5px solid rgba(255,255,255,.5);object-fit:cover}
+.auth-avatar-fb{
+  width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,.3);
+  display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;
+  flex-shrink:0;
+}
+.sync-tag{font-size:11px;opacity:.7;margin-left:2px}
+.auth-btn{
+  background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.35);
+  color:#fff;border-radius:16px;padding:4px 12px;font-size:12px;font-weight:600;
+  cursor:pointer;display:flex;align-items:center;gap:5px;white-space:nowrap;
+  transition:background .15s;
+}
+.auth-btn:active{background:rgba(255,255,255,.35)}
+.auth-hint{font-size:11px;opacity:.55}
+
+/* Cards */
+.card{
+  background:var(--card);border-radius:var(--radius);padding:20px;
+  margin:0 14px 14px;box-shadow:var(--shadow);position:relative;overflow:hidden;z-index:1;
+}
+
+/* Log card */
+.log-label{font-size:13px;color:var(--muted);margin-bottom:10px;font-weight:500}
+.log-row{display:flex;gap:10px;align-items:center}
+.weight-input{
+  flex:1;font-size:28px;font-weight:700;color:var(--text);
+  border:2px solid var(--border);border-radius:12px;
+  padding:10px 16px;text-align:center;outline:none;transition:border-color .2s;
+  -moz-appearance:textfield;
+}
+.weight-input::-webkit-outer-spin-button,.weight-input::-webkit-inner-spin-button{-webkit-appearance:none}
+.weight-input:focus{border-color:var(--primary)}
+.weight-unit{font-size:16px;color:var(--muted);font-weight:500;margin-left:-2px}
+.log-btn{
+  background:var(--primary);color:#fff;border:none;border-radius:12px;
+  padding:14px 22px;font-size:15px;font-weight:600;cursor:pointer;
+  white-space:nowrap;transition:opacity .2s,transform .1s;
+}
+.log-btn:active{opacity:.85;transform:scale(.97)}
+.log-btn.saved{background:var(--success)}
+.today-logged{
+  display:flex;align-items:center;gap:8px;padding:12px 14px;
+  background:#f0fbf6;border-radius:10px;color:var(--success);font-size:14px;font-weight:500;margin-top:10px;
+}
+.today-logged svg{flex-shrink:0}
+.no-log-nudge{
+  display:flex;align-items:flex-start;gap:8px;padding:12px 14px;
+  background:#fff8ec;border-radius:10px;color:var(--warning);font-size:13px;margin-top:10px;line-height:1.5;
+}
+
+/* BMI card */
+.bmi-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.bmi-number{font-size:44px;font-weight:800;line-height:1}
+.bmi-label-wrap{text-align:right}
+.bmi-tag{display:inline-block;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600;color:#fff;margin-bottom:4px}
+.bmi-goal-text{font-size:12px;color:var(--muted)}
+.zones-bar{
+  position:relative;height:10px;border-radius:5px;overflow:hidden;margin-bottom:8px;
+  background:linear-gradient(to right,#64b5f6 0% 18%,#81c784 18% 40%,#ffb74d 40% 68%,#e57373 68% 100%);
+}
+.zones-pointer{
+  position:absolute;top:-3px;width:4px;height:16px;
+  background:var(--text);border-radius:2px;transform:translateX(-50%);
+  transition:left .5s cubic-bezier(.34,1.56,.64,1);
+}
+.zones-labels{display:flex;justify-content:space-between;font-size:10px;color:var(--muted)}
+.prog-label{display:flex;justify-content:space-between;font-size:13px;color:var(--muted);margin:14px 0 6px}
+.prog-bar{height:8px;background:var(--border);border-radius:4px;overflow:hidden}
+.prog-fill{height:100%;background:linear-gradient(90deg,var(--success),var(--primary));border-radius:4px;transition:width .6s ease}
+
+/* Stats row */
+.stats-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:0 14px 14px}
+.stat-card{background:var(--card);border-radius:14px;padding:14px 10px;box-shadow:var(--shadow);text-align:center}
+.stat-val{font-size:20px;font-weight:700;color:var(--primary)}
+.stat-lbl{font-size:11px;color:var(--muted);margin-top:2px}
+
+/* Chart section */
+.chart-tabs{display:flex;background:var(--border);border-radius:10px;padding:3px;margin-bottom:16px}
+.chart-tab{
+  flex:1;text-align:center;padding:7px;border-radius:8px;font-size:13px;
+  font-weight:600;color:var(--muted);cursor:pointer;transition:all .2s;border:none;background:none;
+}
+.chart-tab.active{background:#fff;color:var(--primary);box-shadow:0 1px 4px rgba(0,0,0,.1)}
+.chart-wrap{position:relative;height:200px}
+.empty-chart{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:14px;gap:8px}
+.empty-chart-icon{font-size:32px;opacity:.5}
+
+/* History */
+.history-title{font-size:14px;font-weight:600;color:var(--muted);margin-bottom:12px}
+.entry-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)}
+.entry-row:last-child{border-bottom:none}
+.entry-date{font-size:13px;color:var(--muted)}
+.entry-weight{font-size:17px;font-weight:700}
+.entry-bmi{font-size:12px;color:var(--muted);margin-top:1px;text-align:right}
+.entry-delta{font-size:12px;font-weight:600}
+.delta-down{color:var(--success)}.delta-up{color:var(--danger)}.delta-same{color:var(--muted)}
+.entry-missing{display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--border);color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="auth-bar" id="authBar">
+    <span class="auth-hint">数据仅存本机</span>
+    <button class="auth-btn" onclick="signInGoogle()">
+      <svg width="13" height="13" viewBox="0 0 24 24">
+        <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+        <path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+        <path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/>
+        <path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+      </svg>
+      Google 登录
+    </button>
+  </div>
+  <div class="header-date" id="headerDate"></div>
+  <div class="header-greeting" id="headerGreeting">早上好 💪</div>
+  <div class="header-streak" id="headerStreak">
+    <span class="streak-fire">🔥</span>
+    <span id="streakText">连续记录 0 天</span>
+  </div>
+</div>
+
+<div class="card" style="margin-top:28px">
+  <div class="log-label">今日体重</div>
+  <div class="log-row">
+    <input class="weight-input" type="number" id="weightInput" placeholder="--" step="0.1" min="30" max="200">
+    <span class="weight-unit">kg</span>
+    <button class="log-btn" id="logBtn" onclick="saveToday()">记录</button>
+  </div>
+  <div id="todayStatus"></div>
+</div>
+
+<div class="card">
+  <div class="bmi-top">
+    <div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:4px">当前 BMI</div>
+      <div class="bmi-number" id="bmiNum">--</div>
+    </div>
+    <div class="bmi-label-wrap">
+      <div class="bmi-tag" id="bmiTag">--</div>
+      <div class="bmi-goal-text" id="bmiGoalText">目标 BMI &lt; 24</div>
+    </div>
+  </div>
+  <div class="zones-bar"><div class="zones-pointer" id="zonesPointer" style="left:50%"></div></div>
+  <div class="zones-labels"><span>偏瘦</span><span>正常</span><span>超重</span><span>肥胖</span></div>
+  <div class="prog-label"><span>减重进度</span><span id="progText">-</span></div>
+  <div class="prog-bar"><div class="prog-fill" id="progFill" style="width:0%"></div></div>
+</div>
+
+<div class="stats-row">
+  <div class="stat-card"><div class="stat-val" id="statLost">—</div><div class="stat-lbl">已减 (kg)</div></div>
+  <div class="stat-card"><div class="stat-val" id="statToGo">—</div><div class="stat-lbl">距目标 (kg)</div></div>
+  <div class="stat-card"><div class="stat-val" id="statDays">0</div><div class="stat-lbl">累计记录</div></div>
+</div>
+
+<div class="card">
+  <div class="chart-tabs">
+    <button class="chart-tab active" onclick="switchTab('week',this)">本周</button>
+    <button class="chart-tab" onclick="switchTab('month',this)">本月</button>
+    <button class="chart-tab" onclick="switchTab('all',this)">全部</button>
+  </div>
+  <div class="chart-wrap">
+    <canvas id="weightChart"></canvas>
+    <div class="empty-chart" id="emptyChart" style="display:none">
+      <div class="empty-chart-icon">📊</div>
+      <div>暂无数据，开始记录吧</div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="history-title">最近记录</div>
+  <div id="historyList"></div>
+</div>
+
+<script>
+// ─── 常量 ──────────────────────────────────────────────────────
+const HEIGHT = 1.75;
+const START_WEIGHT = 93;
+const GOAL_BMI = 24;
+const GOAL_WEIGHT = Math.round(GOAL_BMI * HEIGHT * HEIGHT * 10) / 10; // 73.5
+const STORAGE_KEY = 'wt_entries_v1';
+
+const NUDGES = [
+  "没有体重秤？完全没关系！坚持锻炼和饮食才是关键 💪",
+  "漏记一天不影响趋势，继续保持就好，别完美主义！",
+  "旅行或外出？健康习惯不会因为漏测而中断 ✈️",
+  "没有数据的一天可能是最充实的一天，继续加油！",
+  "不需要每天都完美，只要整体方向对就行 👍",
+];
+
+// ─── Firebase 配置（填入你的值） ────────────────────────────────
+const FB_CONFIG = {
+  apiKey:            "YOUR_API_KEY",
+  authDomain:        "YOUR_PROJECT_ID.firebaseapp.com",
+  databaseURL:       "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
+  projectId:         "YOUR_PROJECT_ID",
+  storageBucket:     "YOUR_PROJECT_ID.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId:             "YOUR_APP_ID"
+};
+// ──────────────────────────────────────────────────────────────
+
+firebase.initializeApp(FB_CONFIG);
+const fbAuth = firebase.auth();
+const fbDb   = firebase.database();
+let   fbUser = null;
+
+// ─── Auth ──────────────────────────────────────────────────────
+function signInGoogle() {
+  fbAuth.signInWithPopup(new firebase.auth.GoogleAuthProvider())
+    .catch(e => alert('登录失败：' + e.message));
+}
+
+function signOutUser() {
+  if (confirm('确定退出登录？数据将继续保存在本机。')) fbAuth.signOut();
+}
+
+fbAuth.onAuthStateChanged(user => {
+  fbUser = user;
+  renderAuthBar(user);
+  if (user) syncFromFirebase(user.uid);
+  else renderAll();
+});
+
+function renderAuthBar(user) {
+  const bar = document.getElementById('authBar');
+  if (!bar) return;
+  if (user) {
+    const avatar = user.photoURL
+      ? `<img class="auth-avatar" src="${user.photoURL}">`
+      : `<div class="auth-avatar-fb">${(user.displayName || 'U')[0].toUpperCase()}</div>`;
+    bar.innerHTML = `
+      <div class="auth-user">
+        ${avatar}
+        <span>${user.displayName || user.email}</span>
+        <span class="sync-tag" id="syncTag">☁ 已同步</span>
+      </div>
+      <button class="auth-btn" onclick="signOutUser()">退出</button>`;
+  } else {
+    bar.innerHTML = `
+      <span class="auth-hint">数据仅存本机</span>
+      <button class="auth-btn" onclick="signInGoogle()">
+        <svg width="13" height="13" viewBox="0 0 24 24">
+          <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+          <path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+          <path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/>
+          <path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+        </svg>
+        Google 登录
+      </button>`;
+  }
+}
+
+function setSyncTag(text) {
+  const t = document.getElementById('syncTag');
+  if (t) t.textContent = text;
+}
+
+function syncFromFirebase(uid) {
+  setSyncTag('☁ 同步中…');
+  fbDb.ref(`users/${uid}/wt_entries`).once('value').then(snap => {
+    const cloud = snap.val() || [];
+    const local = loadEntries();
+
+    let merged;
+    if (cloud.length && local.length) {
+      const map = {};
+      local.forEach(e => map[e.date] = e);
+      cloud.forEach(e => map[e.date] = e); // 云端优先
+      merged = Object.values(map);
+    } else {
+      merged = cloud.length ? cloud : local;
+    }
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+    if (merged.length) fbDb.ref(`users/${uid}/wt_entries`).set(merged);
+    renderAll();
+    setSyncTag('☁ 已同步');
+  }).catch(() => {
+    setSyncTag('☁ 同步失败');
+    renderAll();
+  });
+}
+
+// ─── 本地存储 ──────────────────────────────────────────────────
+function loadEntries() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
+  catch { return []; }
+}
+
+function saveEntries(entries) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+  if (fbUser) {
+    setSyncTag('☁ 保存中…');
+    fbDb.ref(`users/${fbUser.uid}/wt_entries`).set(entries)
+      .then(() => setSyncTag('☁ 已同步'))
+      .catch(() => setSyncTag('☁ 同步失败'));
+  }
+}
+
+// ─── 工具函数 ──────────────────────────────────────────────────
+function todayStr() { return new Date().toISOString().slice(0,10); }
+function bmi(w) { return Math.round(w / (HEIGHT * HEIGHT) * 10) / 10; }
+
+function bmiZone(b) {
+  if (b < 18.5) return {label:'偏瘦', color:'#64b5f6'};
+  if (b < 24)   return {label:'正常', color:'#4caf89'};
+  if (b < 28)   return {label:'超重', color:'#ffb74d'};
+  return          {label:'肥胖', color:'#e57373'};
+}
+
+function bmiToPercent(b) {
+  return Math.min(100, Math.max(0, (b-14)/(35-14)*100));
+}
+
+function formatDate(str) {
+  const d = new Date(str+'T00:00:00');
+  const days = ['日','一','二','三','四','五','六'];
+  return `${d.getMonth()+1}/${d.getDate()} 周${days[d.getDay()]}`;
+}
+
+function getStreak(entries) {
+  if (!entries.length) return 0;
+  const sorted = [...entries].sort((a,b)=>b.date.localeCompare(a.date));
+  let streak = 0, cur = new Date(todayStr()+'T00:00:00');
+  for (const e of sorted) {
+    const d = new Date(e.date+'T00:00:00');
+    const diff = Math.round((cur - d) / 86400000);
+    if (diff <= 1) { streak++; cur = d; } else break;
+  }
+  return streak;
+}
+
+// ─── 图表 ──────────────────────────────────────────────────────
+let chartInstance = null;
+let currentTab = 'week';
+
+function buildChartData(entries, tab) {
+  const sorted = [...entries].sort((a,b)=>a.date.localeCompare(b.date));
+  if (!sorted.length) return null;
+  const today = new Date(todayStr()+'T00:00:00');
+  let labels=[], data=[];
+
+  if (tab === 'week') {
+    for (let i=6;i>=0;i--) {
+      const d = new Date(today); d.setDate(d.getDate()-i);
+      const ds = d.toISOString().slice(0,10);
+      const dn = ['日','一','二','三','四','五','六'];
+      labels.push(`${d.getMonth()+1}/${d.getDate()} 周${dn[d.getDay()]}`);
+      const e = sorted.find(x=>x.date===ds);
+      data.push(e ? e.weight : null);
+    }
+  } else if (tab === 'month') {
+    for (let i=29;i>=0;i--) {
+      const d = new Date(today); d.setDate(d.getDate()-i);
+      const ds = d.toISOString().slice(0,10);
+      labels.push(i%5===0 ? `${d.getMonth()+1}/${d.getDate()}` : '');
+      const e = sorted.find(x=>x.date===ds);
+      data.push(e ? e.weight : null);
+    }
+  } else {
+    const first = new Date(sorted[0].date+'T00:00:00');
+    const days = Math.round((today-first)/86400000)+1;
+    for (let i=0;i<days;i++) {
+      const d = new Date(first); d.setDate(d.getDate()+i);
+      const ds = d.toISOString().slice(0,10);
+      labels.push(i%(Math.max(1,Math.floor(days/6)))===0 ? `${d.getMonth()+1}/${d.getDate()}` : '');
+      const e = sorted.find(x=>x.date===ds);
+      data.push(e ? e.weight : null);
+    }
+  }
+  return {labels, data};
+}
+
+function renderChart(entries, tab) {
+  const canvas = document.getElementById('weightChart');
+  const empty  = document.getElementById('emptyChart');
+  const cd = buildChartData(entries, tab);
+  const hasData = cd && cd.data.some(v=>v!==null);
+
+  if (!hasData) { canvas.style.display='none'; empty.style.display='flex'; return; }
+  canvas.style.display='block'; empty.style.display='none';
+  if (chartInstance) chartInstance.destroy();
+
+  const allW = entries.map(e=>e.weight);
+  const minW = Math.min(...allW, GOAL_WEIGHT) - 3;
+  const maxW = Math.max(...allW) + 2;
+
+  chartInstance = new Chart(canvas, {
+    type:'line',
+    data:{
+      labels:cd.labels,
+      datasets:[
+        {
+          label:'体重', data:cd.data,
+          borderColor:'#5b8dee', backgroundColor:'rgba(91,141,238,.1)',
+          borderWidth:2.5, pointRadius:cd.data.map(v=>v?4:0),
+          pointBackgroundColor:'#fff', pointBorderColor:'#5b8dee', pointBorderWidth:2,
+          fill:true, tension:0.35, spanGaps:false,
+        },
+        {
+          label:'目标 '+GOAL_WEIGHT+'kg',
+          data:cd.labels.map(()=>GOAL_WEIGHT),
+          borderColor:'rgba(56,184,135,.6)', borderWidth:1.5,
+          borderDash:[6,4], pointRadius:0, fill:false, tension:0,
+        }
+      ]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{mode:'index', intersect:false},
+      plugins:{
+        legend:{position:'bottom', labels:{font:{size:11},boxWidth:16,padding:12,color:'#8896aa'}},
+        tooltip:{callbacks:{label:ctx=>ctx.dataset.label==='体重'
+          ?` ${ctx.parsed.y} kg  (BMI ${bmi(ctx.parsed.y)})`
+          :` ${ctx.dataset.label}`}}
+      },
+      scales:{
+        x:{grid:{display:false}, ticks:{font:{size:10},color:'#aab',maxRotation:0}},
+        y:{
+          min:Math.floor(minW), max:Math.ceil(maxW),
+          grid:{color:'rgba(0,0,0,.05)'},
+          ticks:{font:{size:11},color:'#aab',callback:v=>v+'kg'}
+        }
+      }
+    }
+  });
+}
+
+function switchTab(tab, el) {
+  currentTab = tab;
+  document.querySelectorAll('.chart-tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  renderChart(loadEntries(), tab);
+}
+
+// ─── 渲染函数 ──────────────────────────────────────────────────
+function renderHistory(entries) {
+  const el = document.getElementById('historyList');
+  const sorted = [...entries].sort((a,b)=>b.date.localeCompare(a.date));
+  const today = todayStr();
+  const todayD = new Date(today+'T00:00:00');
+  let html = '';
+
+  for (let i=0;i<14;i++) {
+    const d = new Date(todayD); d.setDate(d.getDate()-i);
+    const ds = d.toISOString().slice(0,10);
+    const e = sorted.find(x=>x.date===ds);
+    const prevE = sorted.find(x=>x.date<ds);
+
+    if (e) {
+      let deltaHtml = '';
+      if (prevE) {
+        const diff = Math.round((e.weight - prevE.weight)*10)/10;
+        const cls = diff<0?'delta-down':diff>0?'delta-up':'delta-same';
+        deltaHtml = `<span class="entry-delta ${cls}">${diff>0?'+':''}${diff}kg</span>`;
+      }
+      html += `<div class="entry-row">
+        <div><div class="entry-date">${formatDate(ds)}${ds===today?' · 今天':''}</div></div>
+        <div style="text-align:right">
+          <div class="entry-weight">${e.weight} kg</div>
+          <div class="entry-bmi">BMI ${bmi(e.weight)} ${deltaHtml}</div>
+        </div>
+      </div>`;
+    } else if (i > 0 && entries.some(x=>x.date<=ds)) {
+      html += `<div class="entry-missing"><span style="opacity:.4">—</span><span>${formatDate(ds)} · 未记录</span></div>`;
+    }
+    if (html.split('entry-row').length > 10) break;
+  }
+  el.innerHTML = html || '<div style="text-align:center;color:var(--muted);padding:20px;font-size:14px">还没有记录，今天开始吧！</div>';
+}
+
+function renderBMI(latestWeight) {
+  if (!latestWeight) {
+    document.getElementById('bmiNum').textContent = '--';
+    document.getElementById('bmiTag').textContent = '--';
+    document.getElementById('zonesPointer').style.left = '50%';
+    return;
+  }
+  const b = bmi(latestWeight);
+  const zone = bmiZone(b);
+  document.getElementById('bmiNum').textContent = b;
+  const tag = document.getElementById('bmiTag');
+  tag.textContent = zone.label; tag.style.background = zone.color;
+  document.getElementById('zonesPointer').style.left = bmiToPercent(b) + '%';
+
+  const pct = Math.min(100, Math.max(0, Math.round((START_WEIGHT-latestWeight)/(START_WEIGHT-GOAL_WEIGHT)*100)));
+  document.getElementById('progFill').style.width = pct + '%';
+  document.getElementById('progText').textContent = pct + '%';
+  document.getElementById('bmiGoalText').textContent = `目标 ${GOAL_WEIGHT}kg (BMI ${GOAL_BMI})`;
+}
+
+function renderStats(entries) {
+  if (!entries.length) return;
+  const sorted = [...entries].sort((a,b)=>a.date.localeCompare(b.date));
+  const latest = sorted[sorted.length-1].weight;
+  const lost = Math.round((START_WEIGHT - latest)*10)/10;
+  const toGo = Math.round((latest - GOAL_WEIGHT)*10)/10;
+  document.getElementById('statLost').textContent = lost > 0 ? lost : 0;
+  document.getElementById('statToGo').textContent = toGo > 0 ? toGo : '达标!';
+  document.getElementById('statDays').textContent = entries.length;
+}
+
+function renderHeader(entries) {
+  const now = new Date();
+  const days = ['周日','周一','周二','周三','周四','周五','周六'];
+  document.getElementById('headerDate').textContent =
+    `${now.getFullYear()}年${now.getMonth()+1}月${now.getDate()}日 ${days[now.getDay()]}`;
+  const h = now.getHours();
+  document.getElementById('headerGreeting').textContent =
+    h<5?'深夜了，注意休息 🌙':h<11?'早上好，元气满满 ☀️':h<14?'中午好，注意饮食 🥗':h<18?'下午好，继续加油 💪':h<22?'晚上好，今天辛苦了 🌆':'夜深了，早点休息 🌙';
+  const streak = getStreak(entries);
+  document.getElementById('streakText').textContent = streak ? `连续记录 ${streak} 天` : '开始记录第 1 天';
+}
+
+function renderTodayStatus(entries) {
+  const today = todayStr();
+  const todayEntry = entries.find(e=>e.date===today);
+  const el = document.getElementById('todayStatus');
+  const input = document.getElementById('weightInput');
+  const btn = document.getElementById('logBtn');
+
+  if (todayEntry) {
+    input.value = todayEntry.weight;
+    btn.textContent = '更新'; btn.classList.add('saved');
+    el.innerHTML = `<div class="today-logged">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <polyline points="20 6 9 17 4 12"/>
+      </svg>
+      今天已记录 ${todayEntry.weight} kg · BMI ${bmi(todayEntry.weight)}
+    </div>`;
+  } else {
+    btn.textContent = '记录'; btn.classList.remove('saved');
+    el.innerHTML = `<div class="no-log-nudge">
+      <span>💡</span><span>${NUDGES[new Date().getDate() % NUDGES.length]}</span>
+    </div>`;
+  }
+}
+
+function saveToday() {
+  const val = parseFloat(document.getElementById('weightInput').value);
+  if (!val || val < 30 || val > 250) {
+    const inp = document.getElementById('weightInput');
+    inp.focus(); inp.style.borderColor='var(--danger)';
+    setTimeout(()=>inp.style.borderColor='', 1000);
+    return;
+  }
+  const entries = loadEntries();
+  const today = todayStr();
+  const idx = entries.findIndex(e=>e.date===today);
+  if (idx>=0) entries[idx].weight = val; else entries.push({date:today, weight:val});
+  saveEntries(entries);
+  renderAll();
+}
+
+function renderAll() {
+  const entries = loadEntries();
+  const sorted = [...entries].sort((a,b)=>a.date.localeCompare(b.date));
+  const latest = sorted.length ? sorted[sorted.length-1].weight : null;
+  renderHeader(entries);
+  renderTodayStatus(entries);
+  renderBMI(latest);
+  renderStats(entries);
+  renderChart(entries, currentTab);
+  renderHistory(entries);
+}
+
+document.getElementById('weightInput').addEventListener('keydown', e => {
+  if (e.key==='Enter') saveToday();
+});
+
+renderAll();
+</script>
+</body>
+</html>
